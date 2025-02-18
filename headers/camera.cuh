@@ -71,12 +71,12 @@ public:
 
 class Camera {
 public:
-	Camera(const Vec3& position, const Vec3& direction, const Vec3& up, const int width, const int height, LensSystem* lens_system) {
+	Camera(const Vec3 position, const Vec3 direction, const Vec3 up, const int width, const int height, LensSystem* lens_system) {
 		this->position = position;
 		this->direction = direction;
 		this->up = up;
 		this->lens_system = lens_system;
-		this->focal_length = lens_system->focal_length;
+		this->focal_length = -1.0f;
 		this->width = width;
 		this->height = height;
 	}

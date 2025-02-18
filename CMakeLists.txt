@@ -28,8 +28,8 @@ find_package(CUDA REQUIRED)
 message("Cuda version: " ${CUDA_VERSION})
 CUDA_ADD_EXECUTABLE(Main
     sources/main.cu
-    sources/camera.cu
-    sources/ray.cu
+    # sources/camera.cu
+    # sources/ray.cu
 )
 
 # target_link_libraries(Main HDF5::HDF5)

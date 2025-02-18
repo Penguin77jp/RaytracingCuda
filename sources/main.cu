@@ -235,6 +235,7 @@ Vec3 trace_ray(Scene& scene, Ray ray, curandState& rand_state) {
 				// error
 				return { -1.0f, -1.0f, -1.0f };
 			}
+			return object_color;
 			final_color = final_color + attenuation_color * object_emission;
 			attenuation_color = attenuation_color * object_color;
 		}
@@ -352,25 +353,39 @@ int main() {
 	Scene h_scene;
 	h_scene.num_spheres = 0;
 	h_scene.num_triangles = 0;
+	Camera* camera = nullptr;
 
-	if (false) {
+	if (true) {
 		h_scene.num_spheres = 4;
 		h_scene.spheres[0] = { {0.0f, 0.0f, 0.0f}, 1.0f, {0.6f, 0.4f, 0.2f}, {0.0f, 0.0f, 0.0f} };
 		h_scene.spheres[1] = { {2.0f, 0.0f, -1.0f}, 1.0f, {0.2f, 0.4f, 0.6f}, {0.0f, 0.0f, 0.0f} };
 		// ground
 		h_scene.spheres[2] = { {0.0f, -1000.0f - 10.0f, 0.0f}, 1000.0f, {0.5f, 0.5f, 0.5f}, {0.0f, 0.0f, 0.0f} };
 		// light
-		h_scene.spheres[3] = { {0.0f, 1.5f, 0.0f}, 0.25f, {0.0f, 0.0f, 0.0f}, {10.0f, 10.0f, 10.0f} };
+		h_scene.spheres[3] = { {0.0f, 1.5f, 0.0f}, 0.25f, {1.0f, 1.0f, 1.0f}, {10.0f, 10.0f, 10.0f} };
+
+		Vec3 camera_pos = { 0.0f, 0.0f, 20.0f };
+		Vec3 look_at_pos = { 0.0f, 0.0f, 0.0f };
+
+		Vec3 camera_up = { 0.0f, 1.0f, 0.0f };
+		camera = new Camera(camera_pos, look_at_pos - camera_pos, camera_up, WIDTH, HEIGHT, nullptr);
+		camera->look_at(look_at_pos);
 	}
-	else if (true) {
+	else if (false) {
 		// light and ground
 		h_scene.num_spheres = 2;
 		//h_scene.spheres[0] = { {0.0f, 0.0f, 0.0f}, 8.0f, {0.0f, 0.0f, 0.0f}, {10.0f, 10.0f, 10.0f} };
 		h_scene.spheres[0] = { {0.0f, 3.5f + 5.0f, 2.0f}, 5.0f, {0.0f, 0.0f, 0.0f}, {10.0f, 10.0f, 10.0f} };
 		h_scene.spheres[1] = { {0.0f, -1000.0f - 4.0f, 0.0f}, 1000.0f, {0.5f, 0.5f, 0.5f}, {0.0f, 0.0f, 0.0f} };
-	}
 
-	if (true) {
+		Vec3 camera_pos = { 0.0f, 0.0f, 10.0f };
+		Vec3 look_at_pos = { 0.0f, 0.0f, 0.0f };
+
+		Vec3 camera_up = { 0.0f, 1.0f, 0.0f };
+		camera = new Camera(camera_pos, look_at_pos - camera_pos, camera_up, WIDTH, HEIGHT, nullptr);
+		camera->look_at(look_at_pos);
+	}
+	else if (true) {
 		std::string inputfile = "model.obj";
 		tinyobj::attrib_t attrib;
 		std::vector<tinyobj::shape_t> shapes;
@@ -431,7 +446,18 @@ int main() {
 		}
 		std::cout << "obj_bb_min(" << obj_bb_min.x << ", " << obj_bb_min.y << ", " << obj_bb_min.z << ")" << std::endl;
 		std::cout << "obj_bb_max(" << obj_bb_max.x << ", " << obj_bb_max.y << ", " << obj_bb_max.z << ")" << std::endl;
+
+
+		const float focal_length = 5.0f;
+		Vec3 camera_pos = { 20.0f, 7.0f, 30.0f };
+		Vec3 look_at_pos = { 0.0f, 0.0f, 0.0f };
+
+		Vec3 camera_up = { 0.0f, 1.0f, 0.0f };
+		camera = new Camera(camera_pos, look_at_pos - camera_pos, camera_up, WIDTH, HEIGHT, nullptr);
+		camera->look_at(look_at_pos);
 	}
+
+	camera->print_camera();
 
 	// シーンデータをデバイスメモリにコピー
 	Scene* d_scene;
@@ -442,16 +468,6 @@ int main() {
 		std::cerr << "Error: " << cudaGetErrorString(scene_copy_error) << std::endl;
 		exit(1);
 	}
-
-
-	const float focal_length = 5.0f;
-	Vec3 camera_pos = { 20.0f, 7.0f, 30.0f };
-	Vec3 look_at_pos = { 0.0f, 0.0f, 0.0f };
-
-	Vec3 camera_up = { 0.0f, 1.0f, 0.0f };
-	Camera camera(camera_pos, look_at_pos - camera_pos, camera_up, WIDTH, HEIGHT, nullptr);
-	camera.look_at(look_at_pos);
-	camera.print_camera();
 
 	dim3 block(16, 16);
 	dim3 grid(WIDTH / block.x + 1,
@@ -467,7 +483,7 @@ int main() {
 	std::cout << "done render_init()" << std::endl;
 
 	std::chrono::time_point<std::chrono::system_clock> start_time = std::chrono::system_clock::now();
-	render_pixel << <grid, block >> > (d_output, d_rand_state, d_scene, camera);
+	render_pixel << <grid, block >> > (d_output, d_rand_state, d_scene, *camera);
 
 	checkCudaErrors(cudaGetLastError());
 	checkCudaErrors(cudaDeviceSynchronize());
