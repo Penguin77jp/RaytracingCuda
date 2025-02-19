@@ -2,37 +2,35 @@
 #include <string>
 #include "render.cuh"
 
-//#define WIDTH 4
-//#define HEIGHT 2
-#define WIDTH 800
-#define HEIGHT 600
 #define RAY_SAMPLES 1e3
 #define PI 3.14159265358979323846f
 #define RAY_EPSILON 1.0e-6f
 #define MAX_TRACE_DEPTH 10
 #define MAX_TRIANGLES 10000
 
+// Function to print compiler version information.
+void print_compiler_version() {
+	std::cout << "C++ standard macro (__cplusplus): " << __cplusplus << std::endl;
+
+#ifdef __CUDACC_VER_MAJOR__
+	std::cout << "Compiled with nvcc version: "
+		<< __CUDACC_VER_MAJOR__ << "." << __CUDACC_VER_MINOR__ << std::endl;
+#elif defined(__VERSION__)
+	std::cout << "Compiler version (__VERSION__): " << __VERSION__ << std::endl;
+#endif
+}
 
 int main(int argc, char* argv[]) {
+	print_compiler_version();
+
 	CLI::App app{ "Raytracing CUDA Application" };
 	// cameraオプションを定義し、デフォルト値を "camera.json" に設定
-	std::string camera = "camera.json";
-	app.add_option("-camera", camera, "Camera JSON file")
-		->default_val("camera.json");
-
-	// コマンドライン引数のパース
+	std::string camera_json_file = "";
+	app.add_option("--camera", camera_json_file, "Camera JSON file")->default_val("../assets/camera_test.json");
 	CLI11_PARSE(app, argc, argv);
-
-	std::cout << "Camera JSON file: " << camera << std::endl;
-
-	//const std::string camera_json_file = program.get<std::string>("-camera");
-	const std::string camera_json_file = "-camera";
 
 	// check cuda init
 	checkCudaErrors(cudaDeviceReset());
-
-	float* d_output;
-	checkCudaErrors(cudaMallocManaged(&d_output, WIDTH * HEIGHT * 3 * sizeof(float)));
 
 	//Sphere sphere = { {0.0f, 0.0f, 0.0f}, 1.0f, {0.6f, 0.4f, 0.2f} };
 	Scene h_scene;
@@ -40,7 +38,11 @@ int main(int argc, char* argv[]) {
 	h_scene.num_triangles = 0;
 	Camera* camera = nullptr;
 
-	if (true) {
+	if (false) {
+		h_scene.num_spheres = 1;
+		h_scene.spheres[0] = { {0.0f, -1000.0f - 10.0f, 0.0f}, 1000.0f, {0.5f, 0.5f, 0.5f}, {0.0f, 0.0f, 0.0f} };
+	}
+	else if (true) {
 		h_scene.num_spheres = 4;
 		h_scene.spheres[0] = { {0.0f, 0.0f, 0.0f}, 1.0f, {0.6f, 0.4f, 0.2f}, {0.0f, 0.0f, 0.0f} };
 		h_scene.spheres[1] = { {2.0f, 0.0f, -1.0f}, 1.0f, {0.2f, 0.4f, 0.6f}, {0.0f, 0.0f, 0.0f} };
@@ -48,14 +50,6 @@ int main(int argc, char* argv[]) {
 		h_scene.spheres[2] = { {0.0f, -1000.0f - 10.0f, 0.0f}, 1000.0f, {0.5f, 0.5f, 0.5f}, {0.0f, 0.0f, 0.0f} };
 		// light
 		h_scene.spheres[3] = { {0.0f, 1.5f, 0.0f}, 0.25f, {1.0f, 1.0f, 1.0f}, {10.0f, 10.0f, 10.0f} };
-
-		Vec3 camera_pos = { 0.0f, 0.0f, 20.0f };
-		Vec3 look_at_pos = { 0.0f, 0.0f, 0.0f };
-
-		Vec3 camera_up = { 0.0f, 1.0f, 0.0f };
-		//camera = new Camera(camera_pos, look_at_pos - camera_pos, camera_up, WIDTH, HEIGHT, nullptr);
-		//camera->look_at(look_at_pos);
-		camera = new Camera(camera_json_file);
 	}
 	else if (false) {
 		// light and ground
@@ -68,8 +62,8 @@ int main(int argc, char* argv[]) {
 		Vec3 look_at_pos = { 0.0f, 0.0f, 0.0f };
 
 		Vec3 camera_up = { 0.0f, 1.0f, 0.0f };
-		camera = new Camera(camera_pos, look_at_pos - camera_pos, camera_up, WIDTH, HEIGHT, nullptr);
-		camera->look_at(look_at_pos);
+		//camera = new Camera(camera_pos, look_at_pos - camera_pos, camera_up, WIDTH, HEIGHT, nullptr);
+		//camera->look_at(look_at_pos);
 	}
 	else if (true) {
 		std::string inputfile = "model.obj";
@@ -139,11 +133,16 @@ int main(int argc, char* argv[]) {
 		Vec3 look_at_pos = { 0.0f, 0.0f, 0.0f };
 
 		Vec3 camera_up = { 0.0f, 1.0f, 0.0f };
-		camera = new Camera(camera_pos, look_at_pos - camera_pos, camera_up, WIDTH, HEIGHT, nullptr);
-		camera->look_at(look_at_pos);
+		//camera = new Camera(camera_pos, look_at_pos - camera_pos, camera_up, WIDTH, HEIGHT, nullptr);
+		//camera->look_at(look_at_pos);
 	}
+	camera = new Camera(camera_json_file);
+	const int width = camera->width;
+	const int height = camera->height;
 
-	camera->print_camera();
+	float* d_output;
+	checkCudaErrors(cudaMallocManaged(&d_output, width * height * 3 * sizeof(float)));
+
 
 	// シーンデータをデバイスメモリにコピー
 	Scene* d_scene;
@@ -156,44 +155,44 @@ int main(int argc, char* argv[]) {
 	}
 
 	dim3 block(16, 16);
-	dim3 grid(WIDTH / block.x + 1,
-		HEIGHT / block.y + 1);
+	dim3 grid(width / block.x + 1,
+		height / block.y + 1);
 	std::cout << "grid.x:" << grid.x << " grid.y:" << grid.y << std::endl;
 
 	// create random number generator
 	curandState* d_rand_state;
-	checkCudaErrors(cudaMalloc((void**)&d_rand_state, WIDTH * HEIGHT * sizeof(curandState)));
-	render_init << <grid, block >> > (d_rand_state);
+	checkCudaErrors(cudaMalloc((void**)&d_rand_state, width * height * sizeof(curandState)));
+	render_init << <grid, block >> > (d_rand_state, width, height);
 	checkCudaErrors(cudaGetLastError());
 	checkCudaErrors(cudaDeviceSynchronize());
 	std::cout << "done render_init()" << std::endl;
 
 	std::chrono::time_point<std::chrono::system_clock> start_time = std::chrono::system_clock::now();
-	render_pixel << <grid, block >> > (d_output, d_rand_state, d_scene, *camera);
+	render_pixel<<<grid, block >>>(d_output, d_rand_state, d_scene, *camera);
 
 	checkCudaErrors(cudaGetLastError());
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	std::chrono::time_point<std::chrono::system_clock> end_time = std::chrono::system_clock::now();
 	std::chrono::duration<double> elapsed_time = end_time - start_time;
-	std::cout << "elapsed time:" << elapsed_time.count() << "s" << std::endl << "elapsed time:" << elapsed_time.count() * 1000 / (WIDTH * HEIGHT * RAY_SAMPLES) << "ms/ray" << std::endl;
+	std::cout << "elapsed time:" << elapsed_time.count() << "s" << std::endl << "elapsed time:" << elapsed_time.count() * 1000 / (width * height * RAY_SAMPLES) << "ms/ray" << std::endl;
 
 
-	float* h_output = new float[WIDTH * HEIGHT * 3];
-	cudaMemcpy(h_output, d_output, WIDTH * HEIGHT * 3 * sizeof(float), cudaMemcpyDeviceToHost);
+	float* h_output = new float[width * height * 3];
+	cudaMemcpy(h_output, d_output, width * height * 3 * sizeof(float), cudaMemcpyDeviceToHost);
 
 
 	// output h_output as hdf5
 	{
-		std::vector<double> h_output_vec(WIDTH * HEIGHT * 3);
+		std::vector<double> h_output_vec(width * height * 3);
 		//for (int i = 0; i < WIDTH * HEIGHT * 3; ++i) {
 		//	h_output_vec[i] = h_output[i];
 		//	// u, value
 		//	printf("x:%02d, value:%f -> value:%f\n", i, h_output[i], h_output_vec[i]);
 		//}
-		for (int y = 0; y < HEIGHT; ++y) {
-			for (int x = 0; x < WIDTH; ++x) {
-				const int pixel_index = y * WIDTH + x;
+		for (int y = 0; y < height; ++y) {
+			for (int x = 0; x < width; ++x) {
+				const int pixel_index = y * width + x;
 				for (int c = 0; c < 3; ++c) {
 					h_output_vec[pixel_index * 3 + c] = h_output[pixel_index * 3 + c];
 					// u, value
@@ -206,7 +205,7 @@ int main(int argc, char* argv[]) {
 
 
 
-		Image image = FlattenArray2Image(h_output_vec, WIDTH, HEIGHT, 3);
+		Image image = FlattenArray2Image(h_output_vec, width, height, 3);
 		std::cout << "image size : " << image.size() << ", " << image[0].size() << std::endl;
 
 

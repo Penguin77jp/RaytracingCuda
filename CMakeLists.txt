@@ -4,8 +4,12 @@ project(MyCudaProject)
 # C++ 20
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
-set(CMAKE_CXX20_STANDARD_COMPILE_OPTION "-std:c++latest")
-set(CMAKE_CXX20_EXTENSION_COMPILE_OPTION "-std:c++latest")
+set(CMAKE_CXX20_STANDARD_COMPILE_OPTION "-std:c++20")
+set(CMAKE_CXX20_EXTENSION_COMPILE_OPTION "-std:c++20")
+
+# CUDA C++ 20
+set(CMAKE_CUDA_STANDARD 20)
+set(CMAKE_CUDA_STANDARD_REQUIRED True)
 
 # For cli11
 find_package(CLI11 CONFIG REQUIRED)
@@ -34,6 +38,8 @@ find_package(CUDA REQUIRED)
 message("Cuda version: " ${CUDA_VERSION})
 CUDA_ADD_EXECUTABLE(Main
     sources/main.cu
+    sources/camera.cpp
+    sources/util_json.cpp
 )
 
 # target_link_libraries(Main HDF5::HDF5)

@@ -16,10 +16,6 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
 
-//#define WIDTH 4
-//#define HEIGHT 2
-#define WIDTH 800
-#define HEIGHT 600
 #define RAY_SAMPLES 1e3
 #define PI 3.14159265358979323846f
 #define RAY_EPSILON 1.0e-6f
@@ -217,7 +213,7 @@ Vec3 trace_ray(Scene& scene, Ray ray, curandState& rand_state) {
 	int hit_sphere_id = -1, hit_triangle_id = -1;
 	for (int depth = 0; depth < MAX_TRACE_DEPTH; ++depth) {
 		float t = hit_scene(scene, ray, hit_sphere_id, hit_triangle_id, hit_point, normal, hit_sphere_id, hit_triangle_id);
-		//return { (float)hit_object_id, (float)hit_triangle_id, t };
+		//return { (float)hit_sphere_id, (float)hit_triangle_id, t };
 		if (t > 0.0f) {
 			//Vec3 reflected_dir = reflect(ray.direction, normal);
 			Vec3 reflected_dir = diffuse(normal, rand_state);
@@ -237,7 +233,7 @@ Vec3 trace_ray(Scene& scene, Ray ray, curandState& rand_state) {
 				// error
 				return { -1.0f, -1.0f, -1.0f };
 			}
-			return object_color;
+			//return object_color;
 			final_color = final_color + attenuation_color * object_emission;
 			attenuation_color = attenuation_color * object_color;
 		}
@@ -250,11 +246,11 @@ Vec3 trace_ray(Scene& scene, Ray ray, curandState& rand_state) {
 }
 
 __global__
-void render_init(curandState* rand_state) {
+void render_init(curandState* rand_state, const int width, const int height) {
 	int x = threadIdx.x + blockIdx.x * blockDim.x;
 	int y = threadIdx.y + blockIdx.y * blockDim.y;
-	int pixel_index = y * WIDTH + x;
-	if (x >= WIDTH || y >= HEIGHT) {
+	int pixel_index = y * width + x;
+	if (x >= width || y >= height) {
 		return;
 	}
 	curand_init(1984, pixel_index, 0, &rand_state[pixel_index]);
@@ -262,12 +258,14 @@ void render_init(curandState* rand_state) {
 
 __global__
 void render_pixel(float* output, curandState* rand_state, Scene* scene, Camera cam) {
+	const int width = cam.width;
+	const int height = cam.height;
 	const int x = threadIdx.x + blockIdx.x * blockDim.x;
 	const int y = threadIdx.y + blockIdx.y * blockDim.y;
-	const int pixel_index = y * WIDTH + x;
+	const int pixel_index = y * width + x;
 	//printf("threadIdx:(%d, %d), blockIdx:(%d, %d),x:%d y:%d\n", threadIdx.x, threadIdx.y, blockIdx.x, blockIdx.y, x, y);
 
-	if (x >= WIDTH || y >= HEIGHT) {
+	if (x >= width || y >= height) {
 		//printf("thread out of range, x:%d, y:%d\n", x, y);
 		return;
 	}
@@ -283,6 +281,7 @@ void render_pixel(float* output, curandState* rand_state, Scene* scene, Camera c
 		Vec3 color = trace_ray(*scene, ray, local_rand_state);
 		accumulated_color = accumulated_color + color / (float)RAY_SAMPLES;
 	}
+	//accumulated_color = ray.direction;
 
 	output[pixel_index * 3 + 0] = accumulated_color.x;
 	output[pixel_index * 3 + 1] = accumulated_color.y;

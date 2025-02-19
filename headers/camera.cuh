@@ -2,10 +2,11 @@
 
 #include "camera.cuh"
 #include "ray.cuh"
-#include "util_json.cuh"
+#include "util_json.h"
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 #include "curand_kernel.h"
+#include <filesystem>
 #include <iostream>
 #include <cstdio>
 
@@ -93,47 +94,8 @@ public:
 		this->width = width;
 		this->height = height;
 	}
-	Camera(const std::string& json_file) {
-		std::ifstream f(json_file);
-		json data = json::parse(f);
-		this->position = get_vec3_from_json(data, "position");
+	Camera(const std::string& json_file);
 
-		// load direction
-		{
-			if (data.contains("direction")) {
-				this->direction = normalize(get_vec3_from_json(data, "direction"));
-			}
-			else if (data.contains("look_at")) {
-				Vec3 look_at = get_vec3_from_json(data, "look_at");
-				this->direction = normalize(look_at - this->position);
-			}
-			else {
-				std::cout << "Error: direction or look_at is not found in camera json file" << std::endl;
-				exit(1);
-			}
-		}
-
-		this->up = Vec3{0.0f, 1.0f, 0.0f};
-
-
-		// load lens system file
-		{
-			std::string lens_system_file = "";
-			if (data.contains("lens_system")) {
-				lens_system_file = data["lens_system"];
-			}
-			lens_system = new LensSystem(lens_system_file);
-		}
-
-		this->width = data["width"];
-		this->height = data["height"];
-		if (this->lens_system == nullptr) {
-			this->focal_length = data["focal_length"];
-		}
-		else {
-			this->focal_length = lens_system->compute_focal_length();
-		}
-	}
 	__device__
 		void get_direction_xyz(Vec3& x, Vec3& y, Vec3& z) const {
 		z = -this->direction;
@@ -194,6 +156,6 @@ public:
 	int width, height;
 	float focal_length;
 	Vec3 up;
-	LensSystem* lens_system;
+	LensSystem* lens_system = nullptr;
 };
 
