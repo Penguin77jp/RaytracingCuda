@@ -1,6 +1,12 @@
 #include "camera.cuh"
 #include "util_json.h"
 
+LensSystem::LensSystem(const std::string& json_file) {
+	const json json_data = read_json(json_file);
+
+}
+
+
 Camera::Camera(const std::string& json_file) {
 	json data = read_json(json_file);
 	this->position = get_vec3_from_json(data, "position");
@@ -27,8 +33,10 @@ Camera::Camera(const std::string& json_file) {
 	{
 		std::string lens_system_file = "";
 		if (data.contains("lens_system")) {
-			lens_system_file = data["lens_system"];
-			lens_system = new LensSystem(lens_system_file);
+			lens_system_file = get_from_json<std::string>(data, "lens_system");
+			const auto base_path = std::filesystem::path(json_file).parent_path();
+			const auto lens_system_file_path = base_path / lens_system_file;
+			lens_system = new LensSystem(lens_system_file_path.string());
 		}
 	}
 

@@ -61,9 +61,7 @@ public:
 		this->image_distance = -1.0f;
 
 	}
-	LensSystem(const std::string& json_file) {
-
-	}
+	LensSystem(const std::string& json_file);
 
 	__device__
 		Ray get_ray(const float screen_u, const float screen_v, curandState* rand_state) const {
