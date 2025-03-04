@@ -3,7 +3,6 @@
 #include "render.cuh"
 
 #define RAY_SAMPLES 1e3
-#define PI 3.14159265358979323846f
 #define RAY_EPSILON 1.0e-6f
 #define MAX_TRACE_DEPTH 10
 #define MAX_TRIANGLES 10000

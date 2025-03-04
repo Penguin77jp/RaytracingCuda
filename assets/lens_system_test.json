@@ -1,0 +1,20 @@
+{
+    "lens": [
+        {
+            "thickness": 0.5,
+            "radius": 0.5,
+            "diameter": 0.84,
+            "refractive_index": 1.5
+        },
+        {
+            "thickness": 0.5,
+            "radius": -0.5,
+            "diameter": 0.84,
+            "refractive_index": 1.0
+        }
+    ],
+    "num": 2,
+    "focal_length": 0.6,
+    "fonrt_principal_planes": -0.3333333333333333,
+    "back_principal_planes": 0.3333333333333333
+}

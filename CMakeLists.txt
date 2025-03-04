@@ -36,19 +36,33 @@ include_directories(${Boost_INCLUDE_DIRS})
 set(CUDA_TOOLKIT_ROOT_DIR "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.8")
 find_package(CUDA REQUIRED)
 message("Cuda version: " ${CUDA_VERSION})
-CUDA_ADD_EXECUTABLE(Main
+
+set(SOURCES 
+    sources/camera.cpp
+    sources/util_json.cpp
+)
+
+CUDA_ADD_EXECUTABLE(RenderCuda
     sources/main.cu
     sources/camera.cpp
     sources/util_json.cpp
 )
 
-# target_link_libraries(Main HDF5::HDF5)
-# target_link_libraries(Main PRIVATE hdf5::hdf5-shared hdf5::hdf5_hl-shared)
-target_link_libraries(Main HighFive)
-target_link_libraries(Main tinyobjloader::tinyobjloader)
-target_link_libraries(Main nlohmann_json::nlohmann_json)
-target_link_libraries(Main CLI11::CLI11)
+target_link_libraries(RenderCuda HighFive)
+target_link_libraries(RenderCuda tinyobjloader::tinyobjloader)
+target_link_libraries(RenderCuda nlohmann_json::nlohmann_json)
+target_link_libraries(RenderCuda CLI11::CLI11)
+target_include_directories(RenderCuda PRIVATE headers)
 
+# lens
+CUDA_ADD_EXECUTABLE(Lens_in_Ray
+    sources/main_lens_in_ray.cu
+    sources/camera.cpp
+    sources/util_json.cpp
+)
 
-
-target_include_directories(Main PRIVATE headers)
+target_link_libraries(Lens_in_Ray HighFive)
+target_link_libraries(Lens_in_Ray tinyobjloader::tinyobjloader)
+target_link_libraries(Lens_in_Ray nlohmann_json::nlohmann_json)
+target_link_libraries(Lens_in_Ray CLI11::CLI11)
+target_include_directories(Lens_in_Ray PRIVATE headers)

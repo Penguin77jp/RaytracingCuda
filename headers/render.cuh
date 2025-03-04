@@ -37,13 +37,13 @@ struct Triangle {
 };
 
 __device__
-float hit_sphere(Sphere sphere, Ray ray) {
-	Vec3 oc = { ray.origin.x - sphere.center.x,
-			  ray.origin.y - sphere.center.y,
-			  ray.origin.z - sphere.center.z };
+float hit_sphere(const Vec3& center, const float radius, const Ray& ray) {
+	Vec3 oc = { ray.origin.x - center.x,
+			  ray.origin.y - center.y,
+			  ray.origin.z - center.z };
 	const float a = length_squared(ray.direction);
 	const float b = 2.0f * dot(ray.direction, oc);
-	const float c = length_squared(oc) - sphere.radius * sphere.radius;
+	const float c = length_squared(oc) - radius * radius;
 
 	const float discriminant = b * b - 4 * a * c;
 	if (discriminant < 0) {
@@ -138,7 +138,7 @@ float hit_scene(
 		if (i == prev_hit_sphere_id) {
 			continue;
 		}
-		float t = hit_sphere(scene.spheres[i], ray);
+		float t = hit_sphere(scene.spheres[i].center, scene.spheres[i].radius, ray);
 		if (t > RAY_EPSILON && t < t_min) {
 			t_min = t;
 			which_hit_object_type = 0;

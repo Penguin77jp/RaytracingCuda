@@ -1,5 +1,6 @@
 #pragma once
 
+#include "render.cuh"
 #include "camera.cuh"
 #include "ray.cuh"
 #include "util_json.h"
@@ -12,78 +13,136 @@
 
 using json = nlohmann::json;
 
+#define LENS_SYSTEM_MAX_LENSES 10
+
+class Camera;
+
+// 屈折計算ヘルパー関数
+inline __device__
+bool refract(const Vec3& wi, const Vec3& n, float eta, Vec3& wt) {
+	float cos_theta_i = dot(wi, n);
+	float sin2_theta_i = fmaxf(1.0f - cos_theta_i * cos_theta_i, 0.0f);
+	float sin2_theta_t = eta * eta * sin2_theta_i;
+
+	if (sin2_theta_t >= 1.0f) return false; // 全反射
+
+	float cos_theta_t = sqrtf(1.0f - sin2_theta_t);
+	wt = eta * wi + (eta * cos_theta_i - cos_theta_t) * n;
+	return true;
+}
+
 class Lens {
 public:
-	Lens(const float curvature, const float diameter, const float thickness, const float aperture, const float refractive_index) {
-		this->curvature = curvature;
+	Lens(const float radius, const float diameter, const float thickness, const float refractive_index) {
+		this->radius = radius;
 		this->diameter = diameter;
 		this->thickness = thickness;
-		this->aperture = aperture;
 		this->refractive_index = refractive_index;
-
-		if (abs(this->refractive_index - 1) < 1e-6) {
-			this->focal_length = INFINITY;
-		}
-		else {
-			this->focal_length = this->curvature / (this->refractive_index - 1);
-		}
 	}
-	float curvature;
+	Lens() {};
+
+	__device__
+		void propagate_ray(const Ray& in_ray, float& out_t, Ray& out_ray) const {
+		const Vec3 center = { 0.0f, 0.0f, -thickness / 2 }; // レンズ中心位置
+
+		const float t = hit_sphere(center, radius, in_ray);
+
+		// 交点座標
+		Vec3 point = in_ray.origin + in_ray.direction * out_t;
+
+		// レンズ直径チェック
+		if (sqrtf(point.x * point.x + point.y * point.y) > diameter / 2) {
+			out_t = -1.0f;
+			return;
+		}
+
+		// 法線ベクトル計算
+		Vec3 normal = normalize(point - center);
+		if (radius < 0) normal = -normal; // 凹面の場合
+
+		// 屈折率の比 (現在の媒質からレンズ材質へ)
+		float eta = refractive_index;
+
+		// 屈折方向計算
+		Vec3 direction;
+		if (!refract(in_ray.direction, normal, eta, direction)) {
+			// 全反射の場合
+			out_t = -1.0f;
+			return;
+		}
+
+		out_ray.origin = point;
+		out_ray.direction = normalize(direction);
+	}
+
+	float radius;
 	float diameter;
 	float thickness;
-	float aperture;
 	float refractive_index;
-	float focal_length;
 };
 
 class LensSystem {
 public:
-	LensSystem(Lens* lenses, const int num_lenses) {
-		this->lenses = lenses;
-		this->num_lenses = num_lenses;
-
-
-		// compute focal length
-		// https://www.optics-words.com/kikakogaku/combined-focal-length.html
-		{
-			float tmp_f_sum = 0.0;
-			for (int i = 0; i < num_lenses; ++i) {
-				tmp_f_sum += 1.0 / lenses[i].focal_length;
-			}
-			float tmp_f_dash_sum = 0.0;
-			for (int i = 0; i < num_lenses - 1; ++i) {
-				tmp_f_dash_sum += this->lenses[i].thickness / this->lenses[i].focal_length / this->lenses[i + 1].refractive_index;
-			}
-			//this->focal_length = tmp_f_sum - tmp_f_dash_sum;
-		}
-
-		// compute image distance
-		this->image_distance = -1.0f;
-
+	LensSystem(const std::string& json_file, const Camera& cam);
+	LensSystem():num_lenses(0), object_focal_length(0.0f) {}
+	void print() const;
+	__device__
+	bool valid() const {
+		return num_lenses > 0;
 	}
-	LensSystem(const std::string& json_file);
 
 	__device__
-		Ray get_ray(const float screen_u, const float screen_v, curandState* rand_state) const {
-		Ray ray;
+		bool get_ray(const float screen_u, const float screen_v, curandState* rand_state, Ray& out_ray) const {
+		const Vec3 image_size = { 1.0f, 1.0f, 0.0f };
+
+		Ray ray_in_camera;
+		ray_in_camera.origin = Vec3{ image_size.x * screen_u, image_size.y * screen_v, this->distance_to_image_plane };
+		// random
+		//ray_in_camera.direction = Vec3{ curand_uniform(rand_state) * 2.0f - 1.0f, curand_uniform(rand_state) * 2.0f - 1.0f, -1.0f };
+
+		// DEBUG. The ray direction is always parallel to the z-axis.
+		ray_in_camera.direction = Vec3{ 0.0f, 0.0f, -1.0f };
+		Ray tmp_out_ray;
 		for (int lens_index = 0; lens_index < num_lenses; ++lens_index) {
-
+			const Lens& lens = lenses[lens_index];
+			float t;
+			lens.propagate_ray(ray_in_camera, t, tmp_out_ray);
+			if (t < 0) {
+				return false;
+			}
+			ray_in_camera = tmp_out_ray;
 		}
-		return Ray();
-	}
-	float compute_focal_length() const {
-		exit(1);
-		return 0.0f;
+		out_ray = tmp_out_ray;
+		return true;
 	}
 
-	Lens* lenses;
+	inline LensSystem& operator= (const LensSystem& lens_system) {
+		for (int i = 0; i < lens_system.num_lenses; ++i) {
+			this->lenses[i] = lens_system.lenses[i];
+		}
+		this->num_lenses = lens_system.num_lenses;
+		this->image_distance = lens_system.image_distance;
+		this->focal_length = lens_system.focal_length;
+		this->distance_to_image_plane = lens_system.distance_to_image_plane;
+		this->front_principal_plane = lens_system.front_principal_plane;
+		this->back_principal_plane = lens_system.back_principal_plane;
+
+		return *this;
+	}
+
+	Lens lenses[LENS_SYSTEM_MAX_LENSES];
 	int num_lenses;
 	float image_distance;
+	float focal_length;
+	const float& object_focal_length;
+	float distance_to_image_plane;
+	float front_principal_plane;
+	float back_principal_plane;
 };
 
 class Camera {
 public:
-	Camera(const Vec3 position, const Vec3 direction, const Vec3 up, const int width, const int height, LensSystem* lens_system) {
+	Camera(const Vec3 position, const Vec3 direction, const Vec3 up, const int width, const int height, LensSystem lens_system) {
 		this->position = position;
 		this->direction = direction;
 		this->up = up;
@@ -134,7 +193,7 @@ public:
 		const float scnree_v = (y / (float)this->height * 2.0f - 1.0f) / aspect_ratio;
 
 		Ray ray;
-		if (this->lens_system == nullptr) {
+		if (!lens_system.valid()) {
 			// レイの方向計算
 			const Vec3& cam_direction = -direction_z;
 			Vec3 screen_point = cam_direction * focal_length + direction_x * screen_u + direction_y * scnree_v;
@@ -143,8 +202,17 @@ public:
 			ray.direction = normalize(screen_point);
 		}
 		else {
-			const Ray lens_system_ray = this->lens_system->get_ray(screen_u, scnree_v, &local_rand_state);
-			ray = lens_system_ray;
+			Ray lens_system_ray;
+			bool is_valid = lens_system.get_ray(screen_u, scnree_v, &local_rand_state, lens_system_ray);
+			if (!is_valid) {
+				ray.origin = { 0.0f, 0.0f, 0.0f };
+				ray.direction = { 0.0f, 0.0f, 0.0f };
+			}
+			else {
+				ray = lens_system_ray;
+				//printf("ray.origin(%f, %f, %f)\n", ray.origin.x, ray.origin.y, ray.origin.z);
+				//printf("ray.direction(%f, %f, %f)\n", ray.direction.x, ray.direction.y, ray.direction.z);
+			}
 		}
 		return ray;
 	}
@@ -154,6 +222,6 @@ public:
 	int width, height;
 	float focal_length;
 	Vec3 up;
-	LensSystem* lens_system = nullptr;
+	LensSystem lens_system;
 };
 
