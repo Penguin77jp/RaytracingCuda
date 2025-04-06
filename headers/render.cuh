@@ -10,16 +10,16 @@
 #include "device_launch_parameters.h"
 #include "curand_kernel.h"
 
-#include "camera.cuh"
 #include "ray.cuh"
 #include <highfive/H5File.hpp>
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
+#include "camera.cuh"
 
-#define RAY_SAMPLES 1e3
+#define RAY_SAMPLES 1e5
 #define PI 3.14159265358979323846f
 #define RAY_EPSILON 1.0e-6f
-#define MAX_TRACE_DEPTH 10
+#define MAX_TRACE_DEPTH 24
 #define MAX_TRIANGLES 10000
 
 struct Sphere {
@@ -184,7 +184,7 @@ float hit_scene(
 }
 
 __device__
-Vec3 trace_ray(Scene& scene, Ray ray, curandState& rand_state) {
+Vec3 pathtracing_steradian_sample(Scene& scene, Ray ray, curandState& rand_state) {
 	//if (depth >= MAX_TRACE_DEPTH) {
 	//	// when trace loop is over the max depth
 	//	return { 0.0f, 0.0f, 0.0f };
@@ -245,6 +245,134 @@ Vec3 trace_ray(Scene& scene, Ray ray, curandState& rand_state) {
 	return final_color;
 }
 
+__device__
+Vec3 pathtracing_surface_sample(Scene& scene, Ray ray, curandState& rand_state) {
+	Vec3 hit_point, normal_intersected, final_color, attenuation_color;
+	final_color = { 0.0f, 0.0f, 0.0f };
+	attenuation_color = { 1.0f, 1.0f, 1.0f };
+	int sphere_id_intersected = -1, triangle_id_intersected = -1;
+	float ray_t_intersected = hit_scene(scene, ray, sphere_id_intersected, triangle_id_intersected, hit_point, normal_intersected, sphere_id_intersected, triangle_id_intersected);
+	if (ray_t_intersected < 0.0f) {
+		return { 0.0f, 0.0f, 0.0f };
+	}
+	Vec3 current_point = ray.origin + ray.direction * ray_t_intersected;
+	bool debug_print = false;
+	if (sphere_id_intersected == 2) {
+		//printf("sphere_id_intersected:%d, triangle_id_intersected:%d, ray_t_intersected:%f\n", sphere_id_intersected, triangle_id_intersected, ray_t_intersected);
+		//debug_print = true;
+	}
+	float tmp_dot = dot(normal_intersected, -ray.direction);
+	if (tmp_dot < 0.0f) {
+		return { -1.f, -1.f, -1.f };
+	}
+	attenuation_color = attenuation_color * tmp_dot;
+
+
+	//return normal_intersected;
+	//for (int depth = 0; depth < 1; ++depth) {
+	for (int depth = 0; depth < MAX_TRACE_DEPTH; ++depth) {
+		Sphere& intersected_sphere = scene.spheres[sphere_id_intersected];
+
+		const int& max_spheres = scene.num_spheres;
+		const int random_sphere_id = (int)(curand_uniform(&rand_state) * max_spheres);
+		const Sphere& random_sphere = scene.spheres[random_sphere_id];
+		const float sphere_area = 4.0f * PI * random_sphere.radius * random_sphere.radius;
+		Vec3 sample_point_in_surface;
+		{
+			float u = curand_uniform(&rand_state);
+			float v = curand_uniform(&rand_state);
+			float theta = 2.0f * PI * u;
+			float phi = acosf(1.0f - 2.0f * v);
+			constexpr float eps = 0.0;
+			float x = (random_sphere.radius + eps) * sinf(phi) * cosf(theta);
+			float y = (random_sphere.radius + eps) * sinf(phi) * sinf(theta);
+			float z = (random_sphere.radius + eps) * cosf(phi);
+			sample_point_in_surface = { random_sphere.center.x + x,
+										random_sphere.center.y + y,
+										random_sphere.center.z + z };
+		}
+		//return { dot(normal_intersected, normalize(sample_point_in_surface - current_point)), 0.0f, 0.0f };
+		bool is_visible = false;
+		Ray shadow_ray;
+		Vec3 shadow_intersect_normal;
+		float shadow_ray_t;
+		int shadow_hit_sphere_id = -1, shadow_hit_triangle_id = -1;
+		{
+			Vec3 ray_dir = normalize(sample_point_in_surface - current_point);
+			//return { dot(normal_intersected, ray_dir), 0.0f, 0.0f };
+			shadow_ray = { current_point, ray_dir };
+			//shadow_ray_t = hit_scene(scene, shadow_ray, -1, -1, hit_point, shadow_intersect_normal, shadow_hit_sphere_id, shadow_hit_triangle_id);
+			shadow_ray_t = hit_scene(scene, shadow_ray, sphere_id_intersected, triangle_id_intersected, hit_point, shadow_intersect_normal, shadow_hit_sphere_id, shadow_hit_triangle_id);
+			//return { shadow_ray_t, (float)shadow_hit_sphere_id, (float)shadow_hit_triangle_id };
+			if (shadow_ray_t > 0.0f && shadow_hit_sphere_id == random_sphere_id) {
+				is_visible = true;
+			}
+			else {
+				is_visible = false;
+			}
+		}
+		if (!is_visible) {
+			final_color = final_color + attenuation_color * intersected_sphere.emission;
+			break;
+		}
+		//return { dot(normal_intersected, shadow_ray.direction), 0.0f, 0.0f };
+		const float cos_shadow_ray_current_point = dot(normal_intersected, shadow_ray.direction);
+		const float cos_shadow_ray_sample_point = dot(-shadow_ray.direction, shadow_intersect_normal);
+		if (cos_shadow_ray_current_point < 0.0f || cos_shadow_ray_sample_point < 0.0f) {
+			final_color = final_color + attenuation_color * intersected_sphere.emission;
+			break;
+		}
+		//return { cos_shadow_ray_current_point, cos_shadow_ray_sample_point, 0.0f };
+		const float distance_to_sample_pow2 = length_squared(sample_point_in_surface - current_point);
+		const float geometric_factor = 1.0f / distance_to_sample_pow2 * cos_shadow_ray_current_point * cos_shadow_ray_sample_point;
+		const float diffuse_reflectance = 1.0f / PI;
+		const float pdf = 1.0 / sphere_area;
+		/*if (true && sphere_id_intersected == 2 && random_sphere_id == 0 && is_visible) {
+			debug_print = true;
+		}*/
+
+		//if (debug_print) {
+		//	// debug print in one line
+		//	// cos_shadow_ray_current_point, cos_shadow_ray_sample_point, distance_to_sample_pow2, geometric_factor, pdf, is_visible, shadow_ray_t, shadow_hit_sphere_id, shadow_hit_triangle_id
+		//	printf("depth:%d, sphere_id_intersected:%d, triangle_id_intersected:%d, random_sphere_id:%d, shadow_ray_t:%f, shadow_hit_sphere_id:%d, shadow_hit_triangle_id:%d, cos_shadow_ray_current_point:%f, cos_shadow_ray_sample_point:%f, distance_to_sample_pow2:%f, geometric_factor:%f, pdf:%f, is_visible:%d\n",
+		//		depth,
+		//		sphere_id_intersected,
+		//		triangle_id_intersected,
+		//		random_sphere_id,
+		//		shadow_ray_t,
+		//		shadow_hit_sphere_id,
+		//		shadow_hit_triangle_id,
+		//		cos_shadow_ray_current_point,
+		//		cos_shadow_ray_sample_point,
+		//		distance_to_sample_pow2,
+		//		geometric_factor,
+		//		pdf,
+		//		is_visible);
+		//}
+
+		final_color = final_color + attenuation_color * (intersected_sphere.color * geometric_factor * diffuse_reflectance / pdf + intersected_sphere.emission);
+		attenuation_color = attenuation_color * intersected_sphere.color;
+
+		// set next ray
+		current_point = shadow_ray.origin + shadow_ray.direction * (shadow_ray_t);
+		sphere_id_intersected = random_sphere_id;
+		triangle_id_intersected = -1;
+	}
+	return final_color;
+}
+
+__device__
+void compute_photonic_ray(Scene& in_scene, PhotonicRay& out_ray) {
+
+}
+
+__device__
+Vec3 pathtracing_bdpf(Scene& scene, Ray ray, curandState& rand_state) {
+	constexpr int pthotic_ray_num = 10;
+	PhotonicRay eye_payh[pthotic_ray_num];
+	PhotonicRay light_path[pthotic_ray_num];
+}
+
 __global__
 void render_init(curandState* rand_state, const int width, const int height) {
 	int x = threadIdx.x + blockIdx.x * blockDim.x;
@@ -257,7 +385,7 @@ void render_init(curandState* rand_state, const int width, const int height) {
 }
 
 __global__
-void render_pixel(float* output, curandState* rand_state, Scene* scene, Camera cam) {
+void render_pixel(float* output, curandState* rand_state, Scene* scene, Camera cam, int render_mode) {
 	const int width = cam.width;
 	const int height = cam.height;
 	const int x = threadIdx.x + blockIdx.x * blockDim.x;
@@ -278,7 +406,80 @@ void render_pixel(float* output, curandState* rand_state, Scene* scene, Camera c
 
 	Vec3 accumulated_color = { 0.0f, 0.0f, 0.0f };
 	for (int i = 0; i < RAY_SAMPLES; ++i) {
-		Vec3 color = trace_ray(*scene, ray, local_rand_state);
+		Vec3 color;
+		if (render_mode == 0) {
+			color = pathtracing_steradian_sample(*scene, ray, local_rand_state);
+		}
+		else if (render_mode == 1) {
+			color = pathtracing_surface_sample(*scene, ray, local_rand_state);
+		}
+		else if (render_mode == 2) {
+			constexpr int pthotic_ray_num = 10;
+			PhotonicRay eye_payh[pthotic_ray_num];
+			PhotonicRay light_path[pthotic_ray_num];
+
+			color = pathtracing_bdpf(*scene, ray, local_rand_state);
+		}
+		else {
+			//Vec3 color = { 0.0f, 0.0f, 0.0f };
+		}
+		accumulated_color = accumulated_color + color / (float)RAY_SAMPLES;
+	}
+	//accumulated_color = ray.direction;
+
+	output[pixel_index * 3 + 0] = accumulated_color.x;
+	output[pixel_index * 3 + 1] = accumulated_color.y;
+	output[pixel_index * 3 + 2] = accumulated_color.z;
+
+
+	//output[pixel_index * 3 + 0] = (float)t;
+
+	//output[pixel_index * 3 + 0] = (float)ray.direction.x;
+	//output[pixel_index * 3 + 1] = (float)ray.direction.y;
+	//output[pixel_index * 3 + 2] = (float)ray.direction.z;
+
+	//printf("pixel_index:%d, %d, x:%d, y:%d, value(%f, %f, %f)\n", pixel_index, pixel_index * 3, x, y, output[pixel_index * 3 + 0], output[pixel_index * 3 + 1], output[pixel_index * 3 + 2]);
+}
+
+__global__
+void render_pixel_bdpf(float* output, curandState* rand_state, Scene* scene, Camera cam, int render_mode) {
+	const int width = cam.width;
+	const int height = cam.height;
+	const int x = threadIdx.x + blockIdx.x * blockDim.x;
+	const int y = threadIdx.y + blockIdx.y * blockDim.y;
+	const int pixel_index = y * width + x;
+	//printf("threadIdx:(%d, %d), blockIdx:(%d, %d),x:%d y:%d\n", threadIdx.x, threadIdx.y, blockIdx.x, blockIdx.y, x, y);
+
+	if (x >= width || y >= height) {
+		//printf("thread out of range, x:%d, y:%d\n", x, y);
+		return;
+	}
+	//printf("thread in range, x:%d, y:%d\n", x, y);
+
+	Ray ray = cam.get_ray(x, y, &rand_state[pixel_index]);
+	curandState local_rand_state = rand_state[pixel_index];
+
+	//printf("ray.direction(%f, %f, %f)\n", ray.direction.x, ray.direction.y, ray.direction.z);
+
+	Vec3 accumulated_color = { 0.0f, 0.0f, 0.0f };
+	for (int i = 0; i < RAY_SAMPLES; ++i) {
+		Vec3 color;
+		if (render_mode == 0) {
+			color = pathtracing_steradian_sample(*scene, ray, local_rand_state);
+		}
+		else if (render_mode == 1) {
+			color = pathtracing_surface_sample(*scene, ray, local_rand_state);
+		}
+		else if (render_mode == 2) {
+			constexpr int pthotic_ray_num = 10;
+			PhotonicRay eye_payh[pthotic_ray_num];
+			PhotonicRay light_path[pthotic_ray_num];
+
+			color = pathtracing_bdpf(*scene, ray, local_rand_state);
+		}
+		else {
+			//Vec3 color = { 0.0f, 0.0f, 0.0f };
+		}
 		accumulated_color = accumulated_color + color / (float)RAY_SAMPLES;
 	}
 	//accumulated_color = ray.direction;

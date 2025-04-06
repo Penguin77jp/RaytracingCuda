@@ -41,6 +41,13 @@ int main(int argc, char* argv[]) {
 		h_scene.num_spheres = 1;
 		h_scene.spheres[0] = { {0.0f, -1000.0f - 10.0f, 0.0f}, 1000.0f, {0.5f, 0.5f, 0.5f}, {0.0f, 0.0f, 0.0f} };
 	}
+	else if (false) {
+		h_scene.num_spheres = 3;
+		// light
+		h_scene.spheres[0] = { {0.0f, 2.0f, 0.0f}, 0.25f, {1.0f, 1.0f, 1.0f}, {10.0f, 10.0f, 10.0f} };
+		h_scene.spheres[1] = { {0.0f, 0.0f, 0.0f}, 1.0f, {0.6f, 0.4f, 0.2f}, {0.0f, 0.0f, 0.0f} };
+		h_scene.spheres[2] = { {0.0f, -2.0f, 0.0f}, 0.5f, {0.2f, 0.4f, 0.6f}, {0.0f, 0.0f, 0.0f} };
+	}
 	else if (true) {
 		h_scene.num_spheres = 4;
 		h_scene.spheres[0] = { {0.0f, 0.0f, 0.0f}, 1.0f, {0.6f, 0.4f, 0.2f}, {0.0f, 0.0f, 0.0f} };
@@ -166,8 +173,10 @@ int main(int argc, char* argv[]) {
 	checkCudaErrors(cudaDeviceSynchronize());
 	std::cout << "done render_init()" << std::endl;
 
+	const int render_mode = 2;
 	std::chrono::time_point<std::chrono::system_clock> start_time = std::chrono::system_clock::now();
-	render_pixel<<<grid, block >>>(d_output, d_rand_state, d_scene, *camera);
+	//render_pixel <<<grid, block >>>(d_output, d_rand_state, d_scene, *camera, render_mode);
+	render_pixel_bdpf << <grid, block >> > (d_output, d_rand_state, d_scene, *camera);
 
 	checkCudaErrors(cudaGetLastError());
 	checkCudaErrors(cudaDeviceSynchronize());

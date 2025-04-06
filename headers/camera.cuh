@@ -1,7 +1,5 @@
 #pragma once
 
-#include "render.cuh"
-#include "camera.cuh"
 #include "ray.cuh"
 #include "util_json.h"
 #include "cuda_runtime.h"
@@ -15,7 +13,11 @@ using json = nlohmann::json;
 
 #define LENS_SYSTEM_MAX_LENSES 10
 
-class Camera;
+// defined in render.cuh
+__device__
+float hit_sphere(const Vec3& center, const float radius, const Ray& ray);
+// end of defined in render.cuh
+
 
 // ‹üÜŒvZƒwƒ‹ƒp[ŠÖ”
 inline __device__
@@ -81,6 +83,7 @@ public:
 	float refractive_index;
 };
 
+class Camera;
 class LensSystem {
 public:
 	LensSystem(const std::string& json_file, const Camera& cam);

@@ -4,5 +4,5 @@
     "focal_length": 5.0,
     "width": 800,
     "height": 600,
-    "lens_system" : "lens_system_test.json"
+    "___lens_system" : "lens_system_test.json"
 }

@@ -81,3 +81,9 @@ Vec3 normalize(const Vec3& v) {
     float len = length(v);
     return { v.x / len, v.y / len, v.z / len };
 }
+
+struct PhotonicRay {
+	Vec3 origin;
+	Vec3 direction;
+	Vec3 attenuation;
+};
